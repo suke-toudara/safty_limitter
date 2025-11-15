@@ -16,7 +16,6 @@ SafetyLimiterNode::SafetyLimiterNode(const rclcpp::NodeOptions & options): Node(
   publish_rate_ = this->declare_parameter("publish_rate", 10.0);
   prediction_time_ = this->declare_parameter("prediction_time", 2.0);
   prediction_step_ = this->declare_parameter("prediction_step", 0.1);
-  footprint_radius_ = this->declare_parameter("footprint_radius", 0.5);
   slowdown_margin_ = this->declare_parameter("slowdown_margin", 0.2);
   min_velocity_scale_ = this->declare_parameter("min_velocity_scale", 0.0);
   enable_visualization_ = this->declare_parameter("enable_visualization", true);
@@ -174,6 +173,18 @@ void SafetyLimiterNode::predictTrajectory(std::vector<geometry_msgs::msg::Pose> 
   }
 }
 
+double SafetyLimiterNode::getFootprintRadius() const
+{
+  if (footprint_.polygon.points.empty()) return 0.5;  // Default
+
+  double max_dist = 0.0;
+  for (const auto & point : footprint_.polygon.points) {
+    double dist = std::sqrt(point.x * point.x + point.y * point.y);
+    max_dist = std::max(max_dist, dist);
+  }
+  return max_dist;
+}
+
 double SafetyLimiterNode::checkCollision(
   const std::vector<geometry_msgs::msg::Pose> & predicted_poses,
   const pcl::PointCloud<pcl::PointXYZ>::Ptr & cloud)
@@ -181,13 +192,15 @@ double SafetyLimiterNode::checkCollision(
   double vel_scale = 1.0;
   if (predicted_poses.empty() || cloud->points.empty()) return vel_scale;
 
+  double radius = getFootprintRadius();
+
   for (const auto & pose : predicted_poses) {
     pcl::PointXYZ center;
     center.x = pose.position.x;
     center.y = pose.position.y;
     center.z = pose.position.z;
 
-    double search_radius = footprint_radius_ + slowdown_margin_;
+    double search_radius = radius + slowdown_margin_;
     std::vector<int> indices;
     std::vector<float> distances;
 
@@ -195,12 +208,12 @@ double SafetyLimiterNode::checkCollision(
       for (size_t i = 0; i < indices.size(); ++i) {
         double dist = std::sqrt(distances[i]);
 
-        if (dist <= footprint_radius_) {
+        if (dist <= radius) {
           return min_velocity_scale_;  // Stop
         }
 
-        if (dist <= footprint_radius_ + slowdown_margin_) {
-          double scale = (dist - footprint_radius_) / slowdown_margin_;
+        if (dist <= radius + slowdown_margin_) {
+          double scale = (dist - radius) / slowdown_margin_;
           vel_scale = std::min(vel_scale, std::max(min_velocity_scale_, scale));
         }
       }
@@ -214,6 +227,7 @@ void SafetyLimiterNode::publishVisualization(const std::vector<geometry_msgs::ms
 {
   visualization_msgs::msg::MarkerArray markers;
   int id = 0;
+  double radius = getFootprintRadius();
 
   for (size_t i = 0; i < predicted_poses.size(); i += 3) {  // Every 3rd pose
     const auto & pose = predicted_poses[i];
@@ -227,7 +241,7 @@ void SafetyLimiterNode::publishVisualization(const std::vector<geometry_msgs::ms
     marker.type = visualization_msgs::msg::Marker::CYLINDER;
     marker.action = visualization_msgs::msg::Marker::ADD;
     marker.pose = pose;
-    marker.scale.x = marker.scale.y = footprint_radius_ * 2;
+    marker.scale.x = marker.scale.y = radius * 2;
     marker.scale.z = 0.01;
     marker.color.r = 1.0;
     marker.color.a = 0.5;
@@ -237,7 +251,7 @@ void SafetyLimiterNode::publishVisualization(const std::vector<geometry_msgs::ms
     // Slowdown circle (yellow)
     marker.ns = "slowdown";
     marker.id = id++;
-    marker.scale.x = marker.scale.y = (footprint_radius_ + slowdown_margin_) * 2;
+    marker.scale.x = marker.scale.y = (radius + slowdown_margin_) * 2;
     marker.color.r = 1.0;
     marker.color.g = 1.0;
     marker.color.b = 0.0;

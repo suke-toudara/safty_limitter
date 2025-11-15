@@ -11,10 +11,8 @@ safety_limiter_node:
     prediction_time: 2.0      # seconds to predict into the future
     prediction_step: 0.1      # time step for prediction (seconds)
 
-    # Robot footprint (meters)
-    footprint_radius: 0.5     # radius of robot circle
-
     # Safety margins (meters)
+    # Note: footprint radius is auto-calculated from /footprint topic
     slowdown_margin: 0.2      # margin for gradual slowdown (beyond footprint)
 
     # Velocity scaling

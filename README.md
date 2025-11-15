@@ -17,8 +17,9 @@ ROS2パッケージ：ロボットが障害物に衝突しないように安全�
 
 ### Subscribed Topics
 
-- `cmd_vel_in` (geometry_msgs/Twist): 入力速度コマンド（デフォルト: `/cmd_vel_raw`）
-- `cloud` (sensor_msgs/PointCloud2): 点群データ（デフォルト: `/cloud`）
+- `cmd_vel_in` (geometry_msgs/Twist): 入力速度コマンド
+- `cloud` (sensor_msgs/PointCloud2): 点群データ
+- `footprint` (geometry_msgs/PolygonStamped): ロボットフットプリント（半径自動計算）
 
 ### Published Topics
 
@@ -32,12 +33,13 @@ ROS2パッケージ：ロボットが障害物に衝突しないように安全�
 - `publish_rate` (double, default: 10.0): パブリッシュレート [Hz]
 - `prediction_time` (double, default: 2.0): 予測時間 [秒]
 - `prediction_step` (double, default: 0.1): 予測ステップ [秒]
-- `footprint_radius` (double, default: 0.5): ロボットの半径 [m]
 - `slowdown_margin` (double, default: 0.2): 減速範囲 [m]
 - `min_velocity_scale` (double, default: 0.0): 最小速度スケール (0=停止, 1=フル)
 - `enable_visualization` (bool, default: true): 可視化ON/OFF
 - `cmd_vel_timeout` (double, default: 0.5): cmd_velタイムアウト [秒]
 - `cloud_timeout` (double, default: 1.0): 点群タイムアウト [秒]
+
+**注**: ロボット半径は`/footprint`トピックから自動計算
 
 ## ビルド方法
 
@@ -61,14 +63,15 @@ ros2 launch safety_limiter safety_limiter.launch.py config_file:=/path/to/your/p
 
 ## 仕組み
 
-1. トピックタイムアウト監視（設定時間超過で停止）
-2. TFから現在位置取得
-3. 速度コマンドから将来の軌跡を予測
-4. 各予測位置でKD-tree近傍探索
+1. `/footprint`トピックから半径を自動計算（各点の最大距離）
+2. トピックタイムアウト監視（設定時間超過で停止）
+3. TFから現在位置取得
+4. 速度コマンドから将来の軌跡を予測
+5. 各予測位置でKD-tree近傍探索
    - 半径内に点群 → 停止
    - 半径+減速範囲内に点群 → 距離に応じて減速（0~1）
-5. 速度スケールを適用して`cmd_vel_out`にパブリッシュ
-6. 可視化：各時刻の半径を円で表示（赤=停止、黄=減速）
+6. 速度スケールを適用して`cmd_vel_out`にパブリッシュ
+7. 可視化：各時刻の半径を円で表示（赤=停止、黄=減速）
 
 ## RVizでの可視化
 

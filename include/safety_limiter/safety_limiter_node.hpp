@@ -39,6 +39,8 @@ private:
 
   void publishVisualization(const std::vector<geometry_msgs::msg::Pose> & predicted_poses);
 
+  double getFootprintRadius() const;
+
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
@@ -62,7 +64,6 @@ private:
   double publish_rate_;
   double prediction_time_;
   double prediction_step_;
-  double footprint_radius_;
   double slowdown_margin_;
   double min_velocity_scale_;
   bool enable_visualization_;
