@@ -1,6 +1,14 @@
 cmake_minimum_required(VERSION 3.8)
 project(safety_limiter)
 
+# Set CMake policies to suppress warnings
+if(POLICY CMP0144)
+  cmake_policy(SET CMP0144 NEW)
+endif()
+if(POLICY CMP0074)
+  cmake_policy(SET CMP0074 NEW)
+endif()
+
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
@@ -15,6 +23,7 @@ find_package(visualization_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(tf2_sensor_msgs REQUIRED)
 find_package(pcl_ros REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(PCL REQUIRED)
@@ -24,11 +33,11 @@ include_directories(
   ${PCL_INCLUDE_DIRS}
 )
 
-add_executable(safety_limiter_node
+add_executable(safety_limiter
   src/safety_limiter_node.cpp
 )
 
-ament_target_dependencies(safety_limiter_node
+ament_target_dependencies(safety_limiter
   rclcpp
   std_msgs
   geometry_msgs
@@ -37,16 +46,17 @@ ament_target_dependencies(safety_limiter_node
   tf2
   tf2_ros
   tf2_geometry_msgs
+  tf2_sensor_msgs
   pcl_ros
   pcl_conversions
 )
 
-target_link_libraries(safety_limiter_node
+target_link_libraries(safety_limiter
   ${PCL_LIBRARIES}
 )
 
 install(TARGETS
-  safety_limiter_node
+  safety_limiter
   DESTINATION lib/${PROJECT_NAME}
 )
 

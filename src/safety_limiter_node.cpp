@@ -1,12 +1,12 @@
 #include "safety_limiter/safety_limiter_node.hpp"
 #include <pcl_conversions/pcl_conversions.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
 #include <cmath>
 
 namespace safety_limiter
 {
-
-SafetyLimiterNode::SafetyLimiterNode(const rclcpp::NodeOptions & options): Node("safety_limiter_node", options)
+SafetyLimiterNode::SafetyLimiterNode(const rclcpp::NodeOptions & options): Node("safety_limiter", options)
 {
   latest_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
 
@@ -21,11 +21,11 @@ SafetyLimiterNode::SafetyLimiterNode(const rclcpp::NodeOptions & options): Node(
   topic_timeout_ = this->declare_parameter("topic_timeout", 1.0);
   footprint_radius_ = 0.0;
 
-  cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("cmd_vel_out", 10);
+  cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("cmd_vel_output", 10);
   marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("safety_markers", 10);
 
   cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
-    "cmd_vel_in", 10,
+    "cmd_vel_input", 10,
     std::bind(&SafetyLimiterNode::cmdVelCallback, this, std::placeholders::_1));
 
   point_cloud_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
@@ -147,9 +147,9 @@ void SafetyLimiterNode::predictTrajectory(std::vector<geometry_msgs::msg::Pose> 
   double roll, pitch, yaw;
   m.getRPY(roll, pitch, yaw);
 
-  double vx = latest_cmd_vel_.linear.x;
-  double vy = latest_cmd_vel_.linear.y;
-  double omega = latest_cmd_vel_.angular.z;
+  double vx = latest_cmd_vel_->linear.x;
+  double vy = latest_cmd_vel_->linear.y;
+  double omega = latest_cmd_vel_->angular.z;
 
   geometry_msgs::msg::Pose predicted_pose = current_pose;
   double predicted_yaw = yaw;
@@ -159,7 +159,7 @@ void SafetyLimiterNode::predictTrajectory(std::vector<geometry_msgs::msg::Pose> 
     predicted_yaw += omega * prediction_step_;
     predicted_pose.position.x += (vx * std::cos(predicted_yaw) - vy * std::sin(predicted_yaw)) * prediction_step_;
     predicted_pose.position.y += (vx * std::sin(predicted_yaw) + vy * std::cos(predicted_yaw)) * prediction_step_;
-    predicted_pose.z += 0.0;  
+    predicted_pose.position.z += 0.0;  
 
     tf2::Quaternion pred_q;
     pred_q.setRPY(roll, pitch, predicted_yaw);
@@ -187,9 +187,7 @@ double SafetyLimiterNode::checkCollision(
   const pcl::PointCloud<pcl::PointXYZ>::Ptr & cloud)
 {
   double vel_scale = 1.0;
-  if (predicted_poses.empty() || cloud->points.empty()) return vel_scale;
-
-  if (footprint_.polygon.points.empty()) return vel_scale;
+  if (predicted_poses.empty() || cloud->points.empty()||footprint_.polygon.points.empty()) return 0.0;
 
   for (const auto & pose : predicted_poses) {
     pcl::PointXYZ center;
@@ -201,12 +199,12 @@ double SafetyLimiterNode::checkCollision(
     std::vector<int> indices;
     std::vector<float> distances;
 
-    if (kdtree_.radiusSearch(center, indices, distances, search_radius) > 0) {
+    if (kdtree_.radiusSearch(center, search_radius, indices, distances) > 0) {
       for (size_t i = 0; i < indices.size(); ++i) {
         double dist = std::sqrt(distances[i]);
 
         if (dist <= footprint_radius_) {
-          return min_velocity_scale_;  // Stop
+          return 0.0;  // Stop
         }
 
         if (dist <= footprint_radius_ + slowdown_margin_) {
