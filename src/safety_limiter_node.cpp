@@ -205,41 +205,21 @@ double SafetyLimiterNode::checkCollision(
 
   // Check each predicted pose
   for (const auto & pose : predicted_poses) {
-    // Define corners of the footprint rectangle in robot frame
-    std::vector<std::pair<double, double>> footprint_corners = {
-      {footprint_x_front_, footprint_y_},
-      {footprint_x_front_, -footprint_y_},
-      {-footprint_x_rear_, footprint_y_},
-      {-footprint_x_rear_, -footprint_y_}
-    };
-
-    // Extract yaw from quaternion
-    tf2::Quaternion q(pose.orientation.x, pose.orientation.y,
-                      pose.orientation.z, pose.orientation.w);
-    tf2::Matrix3x3 m(q);
-    double roll, pitch, yaw;
-    m.getRPY(roll, pitch, yaw);
-
-    // Transform footprint corners to map frame
-    std::vector<pcl::PointXYZ> transformed_corners;
-    for (const auto & corner : footprint_corners) {
-      pcl::PointXYZ pt;
-      pt.x = pose.position.x + corner.first * std::cos(yaw) - corner.second * std::sin(yaw);
-      pt.y = pose.position.y + corner.first * std::sin(yaw) + corner.second * std::cos(yaw);
-      pt.z = pose.position.z;
-      transformed_corners.push_back(pt);
-    }
-
-    // Calculate center and max radius for efficient search
+    // Calculate center for efficient search
     pcl::PointXYZ center;
     center.x = pose.position.x;
     center.y = pose.position.y;
     center.z = pose.position.z;
 
-    // Search radius: diagonal of footprint + slowdown margin
-    double search_radius = std::sqrt(
-      std::pow(footprint_x_front_ + footprint_x_rear_, 2) +
-      std::pow(2 * footprint_y_, 2)) / 2.0 + slowdown_margin_;
+    // Calculate footprint radius: maximum distance from center (base_link) to any corner
+    // Corners are at (±footprint_x_front/rear, ±footprint_y)
+    double footprint_radius = std::max(
+      std::sqrt(footprint_x_front_ * footprint_x_front_ + footprint_y_ * footprint_y_),
+      std::sqrt(footprint_x_rear_ * footprint_x_rear_ + footprint_y_ * footprint_y_)
+    );
+
+    // Search radius: footprint radius + safety margin + slowdown margin
+    double search_radius = footprint_radius + safety_margin_ + slowdown_margin_;
 
     // Use KD-tree radius search
     std::vector<int> point_indices;
@@ -252,34 +232,34 @@ double SafetyLimiterNode::checkCollision(
     [4]radius  – 探索範囲．
     [5]params  – 探索パラメータ．
     */
-    if (kdtree_.radiusSearch(center,point_indices, point_distances ,search_radius) > 0) {
+    if (kdtree_.radiusSearch(center, point_indices, point_distances, search_radius) > 0) {
       for (size_t i = 0; i < point_indices.size(); ++i) {
         const pcl::PointXYZ & pt = cloud->points[point_indices[i]];
         if (isPointInFootprint(pt, pose, safety_margin_)) {
-          return 0.0; // Collision detected - stop
+          return min_velocity_scale_; // Collision detected - stop
         }
 
         if (isPointInFootprint(pt, pose, safety_margin_ + slowdown_margin_)) {
-          // Calculate distance-based scale (0 at footprint, 1 at slowdown margin)
-          double distance_to_footprint = 0.0;
+          // Calculate distance-based scale using footprint radius
           double dx = pt.x - center.x;
           double dy = pt.y - center.y;
           double dist_from_center = std::sqrt(dx * dx + dy * dy);
-          double footprint_size = std::sqrt(std::pow(footprint_x_front_, 2) + std::pow(footprint_y_, 2))
-          distance_to_footprint = dist_from_center - footprint_size - safety_margin_;
+
+          // Distance from footprint edge (approximation using footprint radius)
+          double distance_to_footprint = dist_from_center - footprint_radius - safety_margin_;
 
           if (distance_to_footprint < slowdown_margin_) {
             // Linear interpolation: 0 at footprint edge, 1 at slowdown_margin distance
             double scale = distance_to_footprint / slowdown_margin_;
             scale = std::max(min_velocity_scale_, std::min(1.0, scale));
-            min_scale = std::min(min_scale, scale);
+            vel_scale = std::min(vel_scale, scale);
           }
         }
       }
     }
   }
 
-  return min_scale;
+  return vel_scale;
 }
 
 bool SafetyLimiterNode::isPointInFootprint(
