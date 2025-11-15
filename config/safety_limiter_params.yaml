@@ -23,3 +23,10 @@ safety_limiter_node:
 
     # Velocity scaling
     min_velocity_scale: 0.0   # minimum velocity scale (0.0 = complete stop, 1.0 = full speed)
+
+    # Visualization
+    enable_visualization: true  # enable/disable visualization markers
+
+    # Topic timeout (seconds)
+    cmd_vel_timeout: 0.5      # timeout for cmd_vel topic (will stop robot if exceeded)
+    cloud_timeout: 1.0        # timeout for point cloud topic (will stop robot if exceeded)

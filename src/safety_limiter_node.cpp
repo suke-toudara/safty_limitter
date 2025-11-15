@@ -9,7 +9,9 @@ namespace safety_limiter
 SafetyLimiterNode::SafetyLimiterNode(const rclcpp::NodeOptions & options)
 : Node("safety_limiter_node", options),
   latest_cloud_(new pcl::PointCloud<pcl::PointXYZ>),
-  cloud_updated_(false)
+  cloud_updated_(false),
+  last_cmd_vel_time_(this->now()),
+  last_cloud_time_(this->now())
 {
   // Declare parameters
   this->declare_parameter("robot_frame", "base_link");
@@ -23,6 +25,9 @@ SafetyLimiterNode::SafetyLimiterNode(const rclcpp::NodeOptions & options)
   this->declare_parameter("safety_margin", 0.0);
   this->declare_parameter("slowdown_margin", 0.2);
   this->declare_parameter("min_velocity_scale", 0.0);
+  this->declare_parameter("enable_visualization", true);
+  this->declare_parameter("cmd_vel_timeout", 0.5);
+  this->declare_parameter("cloud_timeout", 1.0);
 
   // Get parameters
   robot_frame_ = this->get_parameter("robot_frame").as_string();
@@ -36,6 +41,9 @@ SafetyLimiterNode::SafetyLimiterNode(const rclcpp::NodeOptions & options)
   safety_margin_ = this->get_parameter("safety_margin").as_double();
   slowdown_margin_ = this->get_parameter("slowdown_margin").as_double();
   min_velocity_scale_ = this->get_parameter("min_velocity_scale").as_double();
+  enable_visualization_ = this->get_parameter("enable_visualization").as_bool();
+  cmd_vel_timeout_ = this->get_parameter("cmd_vel_timeout").as_double();
+  cloud_timeout_ = this->get_parameter("cloud_timeout").as_double();
 
   // Initialize TF
   tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
@@ -50,8 +58,9 @@ SafetyLimiterNode::SafetyLimiterNode(const rclcpp::NodeOptions & options)
     "cloud", 10,
     std::bind(&SafetyLimiterNode::pointCloudCallback, this, std::placeholders::_1));
 
-  // Create publisher
+  // Create publishers
   cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("cmd_vel_out", 10);
+  marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("safety_markers", 10);
 
   // Create timer
   auto period = std::chrono::duration<double>(1.0 / publish_rate_);
@@ -65,6 +74,7 @@ SafetyLimiterNode::SafetyLimiterNode(const rclcpp::NodeOptions & options)
 void SafetyLimiterNode::cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
 {
   latest_cmd_vel_ = msg;
+  last_cmd_vel_time_ = this->now();
 }
 
 void SafetyLimiterNode::pointCloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
@@ -77,11 +87,21 @@ void SafetyLimiterNode::pointCloudCallback(const sensor_msgs::msg::PointCloud2::
     kdtree_.setInputCloud(latest_cloud_);
     cloud_updated_ = true;
   }
+
+  last_cloud_time_ = this->now();
 }
 
 void SafetyLimiterNode::timerCallback()
 {
-  if (!latest_cmd_vel_ || !cloud_updated_) {
+  // Check for topic timeouts
+  bool timeout_detected = checkTopicTimeout();
+
+  if (timeout_detected || !latest_cmd_vel_ || !cloud_updated_) {
+    // Publish zero velocity if timeout detected
+    if (timeout_detected) {
+      geometry_msgs::msg::Twist zero_cmd_vel;
+      cmd_vel_pub_->publish(zero_cmd_vel);
+    }
     return;
   }
 
@@ -103,6 +123,11 @@ void SafetyLimiterNode::timerCallback()
 
   // Publish modified cmd_vel
   cmd_vel_pub_->publish(output_cmd_vel);
+
+  // Publish visualization markers
+  if (enable_visualization_) {
+    publishVisualization(predicted_poses);
+  }
 
   if (velocity_scale < 1.0) {
     RCLCPP_WARN(
@@ -310,6 +335,133 @@ bool SafetyLimiterNode::isPointInFootprint(
               (local_y <= (footprint_y_ + footprint_margin));
 
   return in_x && in_y;
+}
+
+void SafetyLimiterNode::publishVisualization(
+  const std::vector<geometry_msgs::msg::Pose> & predicted_poses)
+{
+  visualization_msgs::msg::MarkerArray marker_array;
+  int marker_id = 0;
+
+  // Create markers for each predicted pose
+  for (size_t i = 0; i < predicted_poses.size(); ++i) {
+    const auto & pose = predicted_poses[i];
+
+    // Extract yaw from quaternion
+    tf2::Quaternion q(pose.orientation.x, pose.orientation.y,
+                      pose.orientation.z, pose.orientation.w);
+    tf2::Matrix3x3 m(q);
+    double roll, pitch, yaw;
+    m.getRPY(roll, pitch, yaw);
+
+    // Marker for footprint (safety zone - red)
+    visualization_msgs::msg::Marker footprint_marker;
+    footprint_marker.header.frame_id = map_frame_;
+    footprint_marker.header.stamp = this->now();
+    footprint_marker.ns = "footprint";
+    footprint_marker.id = marker_id++;
+    footprint_marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
+    footprint_marker.action = visualization_msgs::msg::Marker::ADD;
+    footprint_marker.pose.orientation.w = 1.0;
+    footprint_marker.scale.x = 0.02;  // Line width
+    footprint_marker.color.r = 1.0;
+    footprint_marker.color.g = 0.0;
+    footprint_marker.color.b = 0.0;
+    footprint_marker.color.a = 0.8;
+    footprint_marker.lifetime = rclcpp::Duration::from_seconds(0.2);
+
+    // Create rectangle corners for footprint
+    std::vector<std::pair<double, double>> corners = {
+      {footprint_x_front_ + safety_margin_, footprint_y_ + safety_margin_},
+      {footprint_x_front_ + safety_margin_, -(footprint_y_ + safety_margin_)},
+      {-(footprint_x_rear_ + safety_margin_), -(footprint_y_ + safety_margin_)},
+      {-(footprint_x_rear_ + safety_margin_), footprint_y_ + safety_margin_},
+      {footprint_x_front_ + safety_margin_, footprint_y_ + safety_margin_}  // Close the loop
+    };
+
+    for (const auto & corner : corners) {
+      geometry_msgs::msg::Point p;
+      p.x = pose.position.x + corner.first * std::cos(yaw) - corner.second * std::sin(yaw);
+      p.y = pose.position.y + corner.first * std::sin(yaw) + corner.second * std::cos(yaw);
+      p.z = pose.position.z + 0.01;
+      footprint_marker.points.push_back(p);
+    }
+
+    marker_array.markers.push_back(footprint_marker);
+
+    // Marker for slowdown zone (yellow)
+    visualization_msgs::msg::Marker slowdown_marker;
+    slowdown_marker.header.frame_id = map_frame_;
+    slowdown_marker.header.stamp = this->now();
+    slowdown_marker.ns = "slowdown_zone";
+    slowdown_marker.id = marker_id++;
+    slowdown_marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
+    slowdown_marker.action = visualization_msgs::msg::Marker::ADD;
+    slowdown_marker.pose.orientation.w = 1.0;
+    slowdown_marker.scale.x = 0.02;  // Line width
+    slowdown_marker.color.r = 1.0;
+    slowdown_marker.color.g = 1.0;
+    slowdown_marker.color.b = 0.0;
+    slowdown_marker.color.a = 0.5;
+    slowdown_marker.lifetime = rclcpp::Duration::from_seconds(0.2);
+
+    // Create rectangle corners for slowdown zone
+    std::vector<std::pair<double, double>> slowdown_corners = {
+      {footprint_x_front_ + safety_margin_ + slowdown_margin_,
+       footprint_y_ + safety_margin_ + slowdown_margin_},
+      {footprint_x_front_ + safety_margin_ + slowdown_margin_,
+       -(footprint_y_ + safety_margin_ + slowdown_margin_)},
+      {-(footprint_x_rear_ + safety_margin_ + slowdown_margin_),
+       -(footprint_y_ + safety_margin_ + slowdown_margin_)},
+      {-(footprint_x_rear_ + safety_margin_ + slowdown_margin_),
+       footprint_y_ + safety_margin_ + slowdown_margin_},
+      {footprint_x_front_ + safety_margin_ + slowdown_margin_,
+       footprint_y_ + safety_margin_ + slowdown_margin_}
+    };
+
+    for (const auto & corner : slowdown_corners) {
+      geometry_msgs::msg::Point p;
+      p.x = pose.position.x + corner.first * std::cos(yaw) - corner.second * std::sin(yaw);
+      p.y = pose.position.y + corner.first * std::sin(yaw) + corner.second * std::cos(yaw);
+      p.z = pose.position.z + 0.01;
+      slowdown_marker.points.push_back(p);
+    }
+
+    marker_array.markers.push_back(slowdown_marker);
+
+    // Only show every 3rd pose to avoid clutter
+    if (i % 3 != 0 && i != 0 && i != predicted_poses.size() - 1) {
+      continue;
+    }
+  }
+
+  marker_pub_->publish(marker_array);
+}
+
+bool SafetyLimiterNode::checkTopicTimeout()
+{
+  rclcpp::Time current_time = this->now();
+  bool timeout = false;
+
+  // Check cmd_vel timeout
+  double cmd_vel_age = (current_time - last_cmd_vel_time_).seconds();
+  if (cmd_vel_age > cmd_vel_timeout_) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 1000,
+      "cmd_vel timeout detected (%.2f s > %.2f s)", cmd_vel_age, cmd_vel_timeout_);
+    timeout = true;
+  }
+
+  // Check point cloud timeout
+  double cloud_age = (current_time - last_cloud_time_).seconds();
+  if (cloud_age > cloud_timeout_) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 1000,
+      "Point cloud timeout detected (%.2f s > %.2f s)", cloud_age, cloud_timeout_);
+    timeout = true;
+  }
+
+  return timeout;
 }
 
 }  // namespace safety_limiter

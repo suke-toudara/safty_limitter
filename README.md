@@ -10,6 +10,8 @@ ROS2パッケージ：ロボットが障害物に衝突しないように安全�
 - PCLの近傍探索（KD-tree）を使用して、フットプリント内の障害物を検出
 - フットプリント内に点群がある場合は停止
 - フットプリントを広げた範囲に点群がある場合は徐々に減速（0~1のスケール）
+- **各時間での監視範囲を可視化**（RVizでマーカー表示）
+- **トピックタイムアウト監視**：一定時間トピックが受信されない場合、ロボットを停止
 
 ## トピック
 
@@ -21,6 +23,7 @@ ROS2パッケージ：ロボットが障害物に衝突しないように安全�
 ### Published Topics
 
 - `cmd_vel_out` (geometry_msgs/Twist): 安全制限を適用した速度コマンド（デフォルト: `/cmd_vel`）
+- `safety_markers` (visualization_msgs/MarkerArray): 監視範囲の可視化マーカー（赤：停止ゾーン、黄：減速ゾーン）
 
 ## パラメータ
 
@@ -35,6 +38,9 @@ ROS2パッケージ：ロボットが障害物に衝突しないように安全�
 - `safety_margin` (double, default: 0.0): 安全マージン（即座停止ゾーン）[m]
 - `slowdown_margin` (double, default: 0.2): 減速マージン [m]
 - `min_velocity_scale` (double, default: 0.0): 最小速度スケール（0.0=完全停止、1.0=フルスピード）
+- `enable_visualization` (bool, default: true): 可視化マーカーの有効/無効
+- `cmd_vel_timeout` (double, default: 0.5): cmd_velトピックのタイムアウト [秒]
+- `cloud_timeout` (double, default: 1.0): 点群トピックのタイムアウト [秒]
 
 ## ビルド方法
 
@@ -58,11 +64,28 @@ ros2 launch safety_limiter safety_limiter.launch.py config_file:=/path/to/your/p
 
 ## 仕組み
 
-1. `cmd_vel_in`から速度コマンドを受信
-2. `cloud`から点群データを受信し、PCL KD-treeを構築
-3. TFから現在のロボット位置を取得
-4. 速度コマンドに基づいて将来のロボット軌跡を予測
-5. 各予測位置でのフットプリント内に障害物があるかチェック（KD-tree近傍探索）
+1. **トピックタイムアウト監視**
+   - `cmd_vel_in`と`cloud`の最終受信時刻を記録
+   - 設定時間を超えた場合は速度を0にして停止
+2. `cmd_vel_in`から速度コマンドを受信
+3. `cloud`から点群データを受信し、PCL KD-treeを構築
+4. TFから現在のロボット位置を取得
+5. 速度コマンドに基づいて将来のロボット軌跡を予測
+6. 各予測位置でのフットプリント内に障害物があるかチェック（KD-tree近傍探索）
    - フットプリント内に点群がある場合：速度スケール = `min_velocity_scale`（停止）
    - フットプリント+減速マージン内に点群がある場合：距離に応じて速度を減速（0~1）
-6. スケールを適用した速度コマンドを`cmd_vel_out`にパブリッシュ
+7. スケールを適用した速度コマンドを`cmd_vel_out`にパブリッシュ
+8. **可視化マーカーをパブリッシュ**（`enable_visualization`がtrueの場合）
+   - 赤色のマーカー：停止ゾーン（フットプリント + safety_margin）
+   - 黄色のマーカー：減速ゾーン（停止ゾーン + slowdown_margin）
+
+## RVizでの可視化
+
+可視化マーカーをRVizで表示するには：
+
+1. RVizを起動
+2. 「Add」→「MarkerArray」を選択
+3. Topicを`/safety_markers`に設定
+4. Fixed Frameを`odom`（またはmap_frameパラメータに合わせたフレーム）に設定
+
+赤色の矩形が停止ゾーン、黄色の矩形が減速ゾーンを示します。
