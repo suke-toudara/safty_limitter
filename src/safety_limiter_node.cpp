@@ -19,8 +19,7 @@ SafetyLimiterNode::SafetyLimiterNode(const rclcpp::NodeOptions & options): Node(
   slowdown_margin_ = this->declare_parameter("slowdown_margin", 0.2);
   min_velocity_scale_ = this->declare_parameter("min_velocity_scale", 0.0);
   enable_visualization_ = this->declare_parameter("enable_visualization", true);
-  cmd_vel_timeout_ = this->declare_parameter("cmd_vel_timeout", 0.5);
-  cloud_timeout_ = this->declare_parameter("cloud_timeout", 1.0);
+  topic_timeout_ = this->declare_parameter("topic_timeout", 1.0);
 
   cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("cmd_vel_out", 10);
   marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("safety_markers", 10);
@@ -76,15 +75,14 @@ void SafetyLimiterNode::pointCloudCallback(const sensor_msgs::msg::PointCloud2::
 bool SafetyLimiterNode::checkTopicTimeout()
 {
   rclcpp::Time current_time = this->now();
-  bool timeout = false;
 
   double cmd_vel_age = (current_time - last_cmd_vel_time_).seconds();
-  if (cmd_vel_age > cmd_vel_timeout_) timeout = true;
+  if (cmd_vel_age > topic_timeout_) return true;
 
   double cloud_age = (current_time - last_cloud_time_).seconds();
-  if (cloud_age > cloud_timeout_) timeout = true;
+  if (cloud_age > topic_timeout_) return true;
 
-  return timeout;
+  return false;
 }
 
 void SafetyLimiterNode::footprintCallback(const geometry_msgs::msg::PolygonStamped::SharedPtr msg)

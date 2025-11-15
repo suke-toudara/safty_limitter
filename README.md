@@ -36,8 +36,7 @@ ROS2パッケージ：ロボットが障害物に衝突しないように安全�
 - `slowdown_margin` (double, default: 0.2): 減速範囲 [m]
 - `min_velocity_scale` (double, default: 0.0): 最小速度スケール (0=停止, 1=フル)
 - `enable_visualization` (bool, default: true): 可視化ON/OFF
-- `cmd_vel_timeout` (double, default: 0.5): cmd_velタイムアウト [秒]
-- `cloud_timeout` (double, default: 1.0): 点群タイムアウト [秒]
+- `topic_timeout` (double, default: 1.0): トピックタイムアウト [秒]
 
 **注**: ロボット半径は`/footprint`トピックから自動計算
 
