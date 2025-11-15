@@ -2,11 +2,6 @@
 .vscode/
 .idea/
 
-# Build
-build/
-install/
-log/
-
 # ROS
 *.pyc
 __pycache__/

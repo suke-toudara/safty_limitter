@@ -55,6 +55,7 @@ private:
   pcl::PointCloud<pcl::PointXYZ>::Ptr latest_cloud_;
   pcl::KdTreeFLANN<pcl::PointXYZ> kdtree_;
   geometry_msgs::msg::PolygonStamped footprint_;
+  double footprint_radius_;
   rclcpp::Time last_cmd_vel_time_;
   rclcpp::Time last_cloud_time_;
 
