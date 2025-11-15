@@ -101,14 +101,11 @@ void SafetyLimiterNode::timerCallback()
     return;
   }
 
-  // Predict robot poses
   std::vector<geometry_msgs::msg::Pose> predicted_poses;
   predictTrajectory(predicted_poses);
 
-  // Check collision and get velocity scale (0.0 = stop, 1.0 = full speed)
   double velocity_scale = checkCollision(predicted_poses, latest_cloud_);
 
-  // Apply velocity scale
   geometry_msgs::msg::Twist output_cmd_vel = *latest_cmd_vel_;
   output_cmd_vel.linear.x *= velocity_scale;
   output_cmd_vel.linear.y *= velocity_scale;
