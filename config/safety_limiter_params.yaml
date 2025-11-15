@@ -22,5 +22,4 @@ safety_limiter_node:
     enable_visualization: true  # enable/disable visualization markers
 
     # Topic timeout (seconds)
-    cmd_vel_timeout: 0.5      # timeout for cmd_vel topic (will stop robot if exceeded)
-    cloud_timeout: 1.0        # timeout for point cloud topic (will stop robot if exceeded)
+    topic_timeout: 1.0        # timeout for all topics (will stop robot if exceeded)

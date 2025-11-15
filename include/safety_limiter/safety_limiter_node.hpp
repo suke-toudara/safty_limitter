@@ -67,8 +67,7 @@ private:
   double slowdown_margin_;
   double min_velocity_scale_;
   bool enable_visualization_;
-  double cmd_vel_timeout_;
-  double cloud_timeout_;
+  double topic_timeout_;
 };
 
 }  // namespace safety_limiter
