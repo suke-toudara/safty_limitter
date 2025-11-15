@@ -3,6 +3,8 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/twist.hpp>
+#include <geometry_msgs/msg/pose.hpp>
+#include <geometry_msgs/msg/polygon_stamped.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <tf2_ros/buffer.h>
@@ -25,12 +27,11 @@ private:
   // Callbacks
   void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
   void pointCloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
+  void footprintCallback(const geometry_msgs::msg::PolygonStamped::SharedPtr msg);
   void timerCallback();
+  bool checkTopicTimeout();
 
-  // Helper functions
-  void predictRobotPoses(
-    const geometry_msgs::msg::Twist & cmd_vel,
-    std::vector<geometry_msgs::msg::Pose> & predicted_poses);
+  void predictTrajectory(std::vector<geometry_msgs::msg::Pose> & predicted_poses);
 
   double checkCollision(
     const std::vector<geometry_msgs::msg::Pose> & predicted_poses,
@@ -41,23 +42,14 @@ private:
     const geometry_msgs::msg::Pose & robot_pose,
     double footprint_margin);
 
-  void publishVisualization(
-    const std::vector<geometry_msgs::msg::Pose> & predicted_poses);
+  void publishVisualization();
 
-  bool checkTopicTimeout();
-
-  // Subscribers
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr point_cloud_sub_;
-
-  // Publishers
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
-
-  // Timer
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr point_cloud_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PolygonStamped>::SharedPtr footprint_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
-
-  // TF
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
@@ -65,7 +57,7 @@ private:
   geometry_msgs::msg::Twist::SharedPtr latest_cmd_vel_;
   pcl::PointCloud<pcl::PointXYZ>::Ptr latest_cloud_;
   pcl::KdTreeFLANN<pcl::PointXYZ> kdtree_;
-  bool cloud_updated_;
+  geometry_msgs::msg::PolygonStamped footprint_;
   rclcpp::Time last_cmd_vel_time_;
   rclcpp::Time last_cloud_time_;
 
