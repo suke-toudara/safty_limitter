@@ -12,14 +12,10 @@ safety_limiter_node:
     prediction_step: 0.1      # time step for prediction (seconds)
 
     # Robot footprint (meters)
-    # Rectangular footprint centered at base_link
-    footprint_x_front: 0.5    # distance from base_link to front
-    footprint_x_rear: 0.5     # distance from base_link to rear
-    footprint_y: 0.4          # half-width of the robot
+    footprint_radius: 0.5     # radius of robot circle
 
     # Safety margins (meters)
-    safety_margin: 0.0        # added to footprint for immediate stop zone
-    slowdown_margin: 0.2      # added to safety zone for gradual slowdown
+    slowdown_margin: 0.2      # margin for gradual slowdown (beyond footprint)
 
     # Velocity scaling
     min_velocity_scale: 0.0   # minimum velocity scale (0.0 = complete stop, 1.0 = full speed)

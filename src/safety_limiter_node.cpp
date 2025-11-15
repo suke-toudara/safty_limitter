@@ -10,37 +10,18 @@ SafetyLimiterNode::SafetyLimiterNode(const rclcpp::NodeOptions & options): Node(
 {
   latest_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
 
-  // Declare parameters
-  this->declare_parameter("robot_frame", "base_link");
-  this->declare_parameter("map_frame", "odom");
-  this->declare_parameter("publish_rate", 10.0);
-  this->declare_parameter("prediction_time", 2.0);
-  this->declare_parameter("prediction_step", 0.1);
-  this->declare_parameter("footprint_x_front", 0.5);
-  this->declare_parameter("footprint_x_rear", 0.5);
-  this->declare_parameter("footprint_y", 0.4);
-  this->declare_parameter("safety_margin", 0.0);
-  this->declare_parameter("slowdown_margin", 0.2);
-  this->declare_parameter("min_velocity_scale", 0.0);
-  this->declare_parameter("enable_visualization", true);
-  this->declare_parameter("cmd_vel_timeout", 0.5);
-  this->declare_parameter("cloud_timeout", 1.0);
-
-  // Get parameters
-  robot_frame_ = this->get_parameter("robot_frame").as_string();
-  map_frame_ = this->get_parameter("map_frame").as_string();
-  publish_rate_ = this->get_parameter("publish_rate").as_double();
-  prediction_time_ = this->get_parameter("prediction_time").as_double();
-  prediction_step_ = this->get_parameter("prediction_step").as_double();
-  footprint_x_front_ = this->get_parameter("footprint_x_front").as_double();
-  footprint_x_rear_ = this->get_parameter("footprint_x_rear").as_double();
-  footprint_y_ = this->get_parameter("footprint_y").as_double();
-  safety_margin_ = this->get_parameter("safety_margin").as_double();
-  slowdown_margin_ = this->get_parameter("slowdown_margin").as_double();
-  min_velocity_scale_ = this->get_parameter("min_velocity_scale").as_double();
-  enable_visualization_ = this->get_parameter("enable_visualization").as_bool();
-  cmd_vel_timeout_ = this->get_parameter("cmd_vel_timeout").as_double();
-  cloud_timeout_ = this->get_parameter("cloud_timeout").as_double();
+  // Declare and get parameters
+  robot_frame_ = this->declare_parameter("robot_frame", "base_link");
+  map_frame_ = this->declare_parameter("map_frame", "odom");
+  publish_rate_ = this->declare_parameter("publish_rate", 10.0);
+  prediction_time_ = this->declare_parameter("prediction_time", 2.0);
+  prediction_step_ = this->declare_parameter("prediction_step", 0.1);
+  footprint_radius_ = this->declare_parameter("footprint_radius", 0.5);
+  slowdown_margin_ = this->declare_parameter("slowdown_margin", 0.2);
+  min_velocity_scale_ = this->declare_parameter("min_velocity_scale", 0.0);
+  enable_visualization_ = this->declare_parameter("enable_visualization", true);
+  cmd_vel_timeout_ = this->declare_parameter("cmd_vel_timeout", 0.5);
+  cloud_timeout_ = this->declare_parameter("cloud_timeout", 1.0);
 
   cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("cmd_vel_out", 10);
   marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("safety_markers", 10);
@@ -203,57 +184,27 @@ double SafetyLimiterNode::checkCollision(
   double vel_scale = 1.0;
   if (predicted_poses.empty() || cloud->points.empty()) return vel_scale;
 
-  // Check each predicted pose
   for (const auto & pose : predicted_poses) {
-    // Calculate center for efficient search
     pcl::PointXYZ center;
     center.x = pose.position.x;
     center.y = pose.position.y;
     center.z = pose.position.z;
 
-    // Calculate footprint radius: maximum distance from center (base_link) to any corner
-    // Corners are at (±footprint_x_front/rear, ±footprint_y)
-    double footprint_radius = std::max(
-      std::sqrt(footprint_x_front_ * footprint_x_front_ + footprint_y_ * footprint_y_),
-      std::sqrt(footprint_x_rear_ * footprint_x_rear_ + footprint_y_ * footprint_y_)
-    );
+    double search_radius = footprint_radius_ + slowdown_margin_;
+    std::vector<int> indices;
+    std::vector<float> distances;
 
-    // Search radius: footprint radius + safety margin + slowdown margin
-    double search_radius = footprint_radius + safety_margin_ + slowdown_margin_;
+    if (kdtree_.radiusSearch(center, indices, distances, search_radius) > 0) {
+      for (size_t i = 0; i < indices.size(); ++i) {
+        double dist = std::sqrt(distances[i]);
 
-    // Use KD-tree radius search
-    std::vector<int> point_indices;
-    std::vector<float> point_distances;
-
-    /*
-    [1]query   – クエリ点．
-    [2]indices – 探索範囲内に存在する近傍点のインデックスが格納されるベクトル．クエリ点までの距離で降順
-    [3]dists   – 探索範囲内の近傍点までの距離
-    [4]radius  – 探索範囲．
-    [5]params  – 探索パラメータ．
-    */
-    if (kdtree_.radiusSearch(center, point_indices, point_distances, search_radius) > 0) {
-      for (size_t i = 0; i < point_indices.size(); ++i) {
-        const pcl::PointXYZ & pt = cloud->points[point_indices[i]];
-        if (isPointInFootprint(pt, pose, safety_margin_)) {
-          return min_velocity_scale_; // Collision detected - stop
+        if (dist <= footprint_radius_) {
+          return min_velocity_scale_;  // Stop
         }
 
-        if (isPointInFootprint(pt, pose, safety_margin_ + slowdown_margin_)) {
-          // Calculate distance-based scale using footprint radius
-          double dx = pt.x - center.x;
-          double dy = pt.y - center.y;
-          double dist_from_center = std::sqrt(dx * dx + dy * dy);
-
-          // Distance from footprint edge (approximation using footprint radius)
-          double distance_to_footprint = dist_from_center - footprint_radius - safety_margin_;
-
-          if (distance_to_footprint < slowdown_margin_) {
-            // Linear interpolation: 0 at footprint edge, 1 at slowdown_margin distance
-            double scale = distance_to_footprint / slowdown_margin_;
-            scale = std::max(min_velocity_scale_, std::min(1.0, scale));
-            vel_scale = std::min(vel_scale, scale);
-          }
+        if (dist <= footprint_radius_ + slowdown_margin_) {
+          double scale = (dist - footprint_radius_) / slowdown_margin_;
+          vel_scale = std::min(vel_scale, std::max(min_velocity_scale_, scale));
         }
       }
     }
@@ -262,35 +213,42 @@ double SafetyLimiterNode::checkCollision(
   return vel_scale;
 }
 
-bool SafetyLimiterNode::isPointInFootprint(
-  const pcl::PointXYZ & point,
-  const geometry_msgs::msg::Pose & robot_pose,
-  double footprint_margin)
+void SafetyLimiterNode::publishVisualization(const std::vector<geometry_msgs::msg::Pose> & predicted_poses)
 {
-  tf2::Quaternion q(robot_pose.orientation.x, robot_pose.orientation.y,
-                    robot_pose.orientation.z, robot_pose.orientation.w);
-  tf2::Matrix3x3 m(q);
-  double roll, pitch, yaw;
-  m.getRPY(roll, pitch, yaw);
+  visualization_msgs::msg::MarkerArray markers;
+  int id = 0;
 
-  // Transform point to robot frame
-  double dx = point.x - robot_pose.position.x;
-  double dy = point.y - robot_pose.position.y;
+  for (size_t i = 0; i < predicted_poses.size(); i += 3) {  // Every 3rd pose
+    const auto & pose = predicted_poses[i];
 
-  double local_x = dx * std::cos(-yaw) - dy * std::sin(-yaw);
-  double local_y = dx * std::sin(-yaw) + dy * std::cos(-yaw);
+    // Footprint circle (red)
+    visualization_msgs::msg::Marker marker;
+    marker.header.frame_id = map_frame_;
+    marker.header.stamp = this->now();
+    marker.ns = "footprint";
+    marker.id = id++;
+    marker.type = visualization_msgs::msg::Marker::CYLINDER;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.pose = pose;
+    marker.scale.x = marker.scale.y = footprint_radius_ * 2;
+    marker.scale.z = 0.01;
+    marker.color.r = 1.0;
+    marker.color.a = 0.5;
+    marker.lifetime = rclcpp::Duration::from_seconds(0.2);
+    markers.markers.push_back(marker);
 
-  // Check if point is inside expanded footprint
-  bool in_x = (local_x >= -(footprint_x_rear_ + footprint_margin)) &&
-              (local_x <= (footprint_x_front_ + footprint_margin));
-  bool in_y = (local_y >= -(footprint_y_ + footprint_margin)) &&
-              (local_y <= (footprint_y_ + footprint_margin));
+    // Slowdown circle (yellow)
+    marker.ns = "slowdown";
+    marker.id = id++;
+    marker.scale.x = marker.scale.y = (footprint_radius_ + slowdown_margin_) * 2;
+    marker.color.r = 1.0;
+    marker.color.g = 1.0;
+    marker.color.b = 0.0;
+    marker.color.a = 0.3;
+    markers.markers.push_back(marker);
+  }
 
-  return in_x && in_y;
-}
-
-void SafetyLimiterNode::publishVisualization()
-{
+  marker_pub_->publish(markers);
 }
 }  // namespace safety_limiter
 

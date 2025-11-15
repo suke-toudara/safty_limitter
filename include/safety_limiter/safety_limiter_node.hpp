@@ -37,12 +37,7 @@ private:
     const std::vector<geometry_msgs::msg::Pose> & predicted_poses,
     const pcl::PointCloud<pcl::PointXYZ>::Ptr & cloud);
 
-  bool isPointInFootprint(
-    const pcl::PointXYZ & point,
-    const geometry_msgs::msg::Pose & robot_pose,
-    double footprint_margin);
-
-  void publishVisualization();
+  void publishVisualization(const std::vector<geometry_msgs::msg::Pose> & predicted_poses);
 
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
@@ -67,10 +62,7 @@ private:
   double publish_rate_;
   double prediction_time_;
   double prediction_step_;
-  double footprint_x_front_;
-  double footprint_x_rear_;
-  double footprint_y_;
-  double safety_margin_;
+  double footprint_radius_;
   double slowdown_margin_;
   double min_velocity_scale_;
   bool enable_visualization_;
