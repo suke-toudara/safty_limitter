@@ -17,6 +17,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
@@ -24,14 +25,7 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_sensor_msgs REQUIRED)
-find_package(pcl_ros REQUIRED)
-find_package(pcl_conversions REQUIRED)
-find_package(PCL REQUIRED)
-
-include_directories(
-  include
-  ${PCL_INCLUDE_DIRS}
-)
+include_directories(include)
 
 add_executable(safety_limiter
   src/safety_limiter_node.cpp
@@ -40,6 +34,7 @@ add_executable(safety_limiter
 ament_target_dependencies(safety_limiter
   rclcpp
   std_msgs
+  nav_msgs
   geometry_msgs
   sensor_msgs
   visualization_msgs
@@ -47,12 +42,6 @@ ament_target_dependencies(safety_limiter
   tf2_ros
   tf2_geometry_msgs
   tf2_sensor_msgs
-  pcl_ros
-  pcl_conversions
-)
-
-target_link_libraries(safety_limiter
-  ${PCL_LIBRARIES}
 )
 
 install(TARGETS

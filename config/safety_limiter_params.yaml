@@ -1,25 +1,22 @@
-safety_limiter_node:
-  ros__parameters:
-    # Frame IDs
-    robot_frame: "base_link"
-    map_frame: "odom"
+/**:
+  safety_limiter:
+    ros__parameters:
+      robot_frame: "base_link"
+      map_frame: "map"
+      publish_rate: 10.0
+      prediction_time: 2.0
+      prediction_step: 0.1
+      footprint_margin: 0.15
+      enable_visualization: true
+      visualization_stride: 3
 
-    # Publishing rate (Hz)
-    publish_rate: 10.0
-
-    # Prediction parameters
-    prediction_time: 2.0      # seconds to predict into the future
-    prediction_step: 0.1      # time step for prediction (seconds)
-
-    # Safety margins (meters)
-    # Note: footprint radius is auto-calculated from /footprint topic
-    slowdown_margin: 0.2      # margin for gradual slowdown (beyond footprint)
-
-    # Velocity scaling
-    min_velocity_scale: 0.0   # minimum velocity scale (0.0 = complete stop, 1.0 = full speed)
-
-    # Visualization
-    enable_visualization: true  # enable/disable visualization markers
-
-    # Topic timeout (seconds)
-    topic_timeout: 1.0        # timeout for all topics (will stop robot if exceeded)
+      # トピック名（launch の remap と合わせる）
+      cmd_vel_in_topic: "cmd_vel_in"
+      cmd_vel_out_topic: "cmd_vel"
+      cloud_topic: "cloud"
+      footprint_topic: "footprint"
+      future_motion_prediction_topic: "future_motion_prediction"
+      future_motion_markers_topic: "future_motion_markers"
+      cloud_in_map_topic: "cloud_in_map"
+      collision_topic: "collision"
+      collision_margin_topic: "collision_margin"
